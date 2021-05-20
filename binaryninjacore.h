@@ -28,7 +28,7 @@
 // Current ABI version for linking to the core. This is incremented any time
 // there are changes to the API that affect linking, including new functions,
 // new types, or modifications to existing functions or types.
-#define BN_CURRENT_CORE_ABI_VERSION 9
+#define BN_CURRENT_CORE_ABI_VERSION 10
 
 // Minimum ABI version that is supported for loading of plugins. Plugins that
 // are linked to an ABI version less than this will not be able to load and
@@ -107,7 +107,9 @@
 
 #define BN_FULL_CONFIDENCE      255
 #define BN_MINIMUM_CONFIDENCE   1
+#define BN_DEFAULT_CONFIDENCE   96
 #define BN_HEURISTIC_CONFIDENCE 192
+#define BN_DEBUGINFO_CONFIDENCE 200
 
 #define DEFAULT_INTERNAL_NAMESPACE "BNINTERNALNAMESPACE"
 #define DEFAULT_EXTERNAL_NAMESPACE "BNEXTERNALNAMESPACE"
@@ -209,6 +211,8 @@ extern "C"
 	struct BNDisassemblyTextRenderer;
 	struct BNLinearViewObject;
 	struct BNLinearViewCursor;
+	struct BNDebugInfo;
+	struct BNDebugInfoParser;
 
 
 	//! Console log levels
@@ -937,6 +941,15 @@ extern "C"
 	{
 		uint64_t address;
 		BNType* type;
+		bool autoDiscovered;
+		uint8_t typeConfidence;
+	};
+
+	struct BNDataVariableAndName
+	{
+		uint64_t address;
+		BNType* type;
+		char* name;
 		bool autoDiscovered;
 		uint8_t typeConfidence;
 	};
@@ -2562,6 +2575,18 @@ extern "C"
 		AllowDeadStoreElimination
 	};
 
+	struct BNDebugFunctionInfo
+	{
+		char* shortName;
+		char* fullName;
+		char* rawName;
+		uint64_t address;
+		BNType* returnType;
+		char** parameterNames;
+		BNType** parameterTypes;
+		size_t parameterCount;
+	};
+
 	BINARYNINJACOREAPI char* BNAllocString(const char* contents);
 	BINARYNINJACOREAPI void BNFreeString(char* str);
 	BINARYNINJACOREAPI char** BNAllocStringList(const char** contents, size_t size);
@@ -3664,6 +3689,7 @@ __attribute__ ((format (printf, 1, 2)))
 	BINARYNINJACOREAPI void BNUndefineUserDataVariable(BNBinaryView* view, uint64_t addr);
 	BINARYNINJACOREAPI BNDataVariable* BNGetDataVariables(BNBinaryView* view, size_t* count);
 	BINARYNINJACOREAPI void BNFreeDataVariables(BNDataVariable* vars, size_t count);
+	BINARYNINJACOREAPI void BNFreeDataVariablesAndName(BNDataVariableAndName* vars, size_t count);
 	BINARYNINJACOREAPI bool BNGetDataVariableAtAddress(BNBinaryView* view, uint64_t addr, BNDataVariable* var);
 
 	BINARYNINJACOREAPI bool BNParseTypeString(BNBinaryView* view, const char* text,
@@ -3940,6 +3966,10 @@ __attribute__ ((format (printf, 1, 2)))
 	BINARYNINJACOREAPI void BNUndefineUserSymbol(BNBinaryView* view, BNSymbol* sym);
 	BINARYNINJACOREAPI void BNDefineImportedFunction(BNBinaryView* view, BNSymbol* importAddressSym, BNFunction* func, BNType* type);
 	BINARYNINJACOREAPI BNSymbol* BNDefineAutoSymbolAndVariableOrFunction(BNBinaryView* view, BNPlatform* platform, BNSymbol* sym, BNType* type);
+
+	BINARYNINJACOREAPI BNDebugInfo* BNGetDebugInfo(BNBinaryView* view);
+	BINARYNINJACOREAPI void BNApplyDebugInfo(BNBinaryView* view, BNDebugInfo* newDebugInfo);
+	BINARYNINJACOREAPI void BNSetDebugInfo(BNBinaryView* view, BNDebugInfo* newDebugInfo);
 
 	BINARYNINJACOREAPI BNSymbol* BNImportedFunctionFromImportAddressSymbol(BNSymbol* sym, uint64_t addr);
 
@@ -5171,6 +5201,28 @@ __attribute__ ((format (printf, 1, 2)))
 	BINARYNINJACOREAPI void BNRustFreeStringArray(const char** const, uint64_t);
 	BINARYNINJACOREAPI char** BNRustSimplifyStrToFQN(const char* const, bool);
 	BINARYNINJACOREAPI char* BNRustSimplifyStrToStr(const char* const);
+
+	BINARYNINJACOREAPI BNDebugInfoParser* BNRegisterDebugInfoParser(const char* name, bool (*isValid)(void*, BNBinaryView*), void (*parseInfo)(void*, BNDebugInfo*, BNBinaryView*), void* context);
+	BINARYNINJACOREAPI BNDebugInfoParser* BNGetDebugInfoParserByName(const char* name);
+	BINARYNINJACOREAPI BNDebugInfoParser** BNGetDebugInfoParsers(size_t* count);
+	BINARYNINJACOREAPI BNDebugInfoParser** BNGetDebugInfoParsersForView(BNBinaryView* view, size_t* count);
+	BINARYNINJACOREAPI char* BNGetDebugInfoParserName(BNDebugInfoParser* parser);
+	BINARYNINJACOREAPI bool BNIsDebugInfoParserValidForView(BNDebugInfoParser* parser, BNBinaryView* view);
+	BINARYNINJACOREAPI BNDebugInfo* BNParseDebugInfo(BNDebugInfoParser* parser, BNBinaryView* view, BNDebugInfo* existingDebugInfo);
+	BINARYNINJACOREAPI BNDebugInfoParser* BNNewDebugInfoParserReference(BNDebugInfoParser* parser);
+	BINARYNINJACOREAPI void BNFreeDebugInfoParserReference(BNDebugInfoParser* parser);
+	BINARYNINJACOREAPI void BNFreeDebugInfoParserList(BNDebugInfoParser** parsers, size_t count);
+
+	BINARYNINJACOREAPI BNDebugInfo* BNNewDebugInfoReference(BNDebugInfo* debugInfo);
+	BINARYNINJACOREAPI void BNFreeDebugInfoReference(BNDebugInfo* debugInfo);
+	BINARYNINJACOREAPI bool BNAddDebugType(BNDebugInfo* const debugInfo, const char* const name, const BNType* const type);
+	BINARYNINJACOREAPI BNNameAndType* BNGetDebugTypes(BNDebugInfo* const debugInfo, const char* const name, size_t* count);
+	BINARYNINJACOREAPI void BNFreeDebugTypes(BNNameAndType* types, size_t count);
+	BINARYNINJACOREAPI bool BNAddDebugFunction(BNDebugInfo* const debugInfo, BNDebugFunctionInfo* func);
+	BINARYNINJACOREAPI BNDebugFunctionInfo* BNGetDebugFunctions(BNDebugInfo* const debugInfo, const char* const name, size_t* count);
+	BINARYNINJACOREAPI void BNFreeDebugFunctions(BNDebugFunctionInfo* functions, size_t count);
+	BINARYNINJACOREAPI bool BNAddDebugDataVariable(BNDebugInfo* const debugInfo, uint64_t address, const BNType* const type, const char* name);
+	BINARYNINJACOREAPI BNDataVariableAndName* BNGetDebugDataVariables(BNDebugInfo* const debugInfo, const char* const name, size_t* count);
 
 #ifdef __cplusplus
 }

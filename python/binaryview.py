@@ -28,6 +28,7 @@ import abc
 import numbers
 import json
 import inspect
+from typing import Union
 
 from collections import defaultdict, OrderedDict
 
@@ -495,6 +496,27 @@ class DataVariable(object):
 	@view.setter
 	def view(self, value):
 		self._view = value
+
+
+class DataVariableAndName(DataVariable):
+	def __init__(self, addr, var_type, var_name, auto_discovered, view=None):
+		self._address = addr
+		self._type = var_type
+		self._name = var_name
+		self._auto_discovered = auto_discovered
+		self._view = view
+
+	def __repr__(self):
+		return "<var 0x%x: %s %s>" % (self._address, str(self._type), self._name)
+
+	@property
+	def name(self):
+		""" """
+		return self._name
+
+	@name.setter
+	def name(self, value):
+		self._name = value
 
 
 class BinaryDataNotificationCallbacks(object):
@@ -1462,7 +1484,6 @@ class BinaryView(object):
 				yield binaryninja.function.Function(self, core.BNNewFunctionReference(funcs[i]))
 		finally:
 			core.BNFreeFunctionList(funcs, count.value)
-
 
 	def __getitem__(self, i):
 		if isinstance(i, tuple):
@@ -6185,6 +6206,24 @@ class BinaryView(object):
 
 		"""
 		core.BNSetGlobalCommentForAddress(self.handle, addr, comment)
+
+	@property
+	def debug_info(self) -> "binaryninja.debuginfo.DebugInfo":
+		"""The current debug info object for this binary view"""
+		return binaryninja.debuginfo.DebugInfo(core.BNNewDebugInfoReference(core.BNGetDebugInfo(self.handle)))
+
+	@debug_info.setter
+	def debug_info(self, value: "binaryninja.debuginfo.DebugInfo") -> Union[None, 'NotImplemented']:
+		"""Sets the debug info for the current binary view"""
+		if not isinstance(value, binaryninja.debuginfo.DebugInfo):
+			return NotImplemented
+		core.BNSetDebugInfo(self.handle, value.handle)
+
+	def apply_debug_info(self, value: "binaryninja.debuginfo.DebugInfo") -> Union[None, 'NotImplemented']:
+		"""Sets the debug info and applies its contents to the current binary view"""
+		if not isinstance(value, binaryninja.debuginfo.DebugInfo):
+			return NotImplemented
+		core.BNApplyDebugInfo(self.handle, value.handle)
 
 	def query_metadata(self, key):
 		"""
